@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 BACKEND_WS_URL = "wss://octer.ai/ws/bridge"
 RECONNECT_INTERVAL = 3.0
 PING_INTERVAL = 30.0
-CLIENT_VERSION = "2.0.0"
+CLIENT_VERSION = "2.1.0"
 
 OnMessage = Callable[[dict], Awaitable[None]]
 OnConnected = Callable[[], Any]
@@ -91,7 +91,7 @@ class OcterClient:
                 raise
 
     async def _connect_once(self) -> None:
-        url = f"{BACKEND_WS_URL}?api_key={self.api_key}"
+        url = f"{BACKEND_WS_URL}?api_key={self.api_key}&client_type=hermes"
         self._log(f"[octer-channel][{self.account_id}] connecting to {BACKEND_WS_URL} ...")
         try:
             async with websockets.connect(url, open_timeout=30, close_timeout=5) as ws:

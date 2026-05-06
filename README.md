@@ -150,7 +150,8 @@ octer-hermes/
 
 ## 协议参考
 
-- WebSocket URL: `wss://octer.ai/ws/bridge?api_key=<key>`
+- WebSocket URL: `wss://octer.ai/ws/bridge?api_key=<key>&client_type=hermes`
+  - 自 v2.1.0 起 `client_type=hermes` 是必填查询参数，云端按此区分 OpenClaw 与 Hermes bridge。
 - 心跳间隔: 30 秒
 - 重连间隔: 3 秒
 - 单条 `tool_response` 上限: 50000 字节（超出截断）

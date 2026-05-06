@@ -210,7 +210,8 @@ gateway:
 
 ## 协议规格
 
-- **WebSocket**：`wss://octer.ai/ws/bridge?api_key=<key>`
+- **WebSocket**：`wss://octer.ai/ws/bridge?api_key=<key>&client_type=hermes`
+  - `client_type=hermes` 自 v2.1.0 起为必填，云端凭此区分 OpenClaw / Hermes bridge，将 `local_hermes` 工具调用准确路由到本插件。
 - **心跳间隔**：30 秒（客户端发 `{type:"ping"}`）
 - **重连间隔**：3 秒（无退避）
 - **单条 `tool_response` 上限**：50000 字节，超出按 utf-8 边界截断
