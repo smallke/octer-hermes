@@ -1,0 +1,11 @@
+name: octer-platform
+kind: platform
+version: 1.0.0
+description: >
+  Octer.ai WebSocket bridge for Hermes Agent.
+  Receives tool_request messages from the Octer.ai cloud over a persistent
+  WebSocket and dispatches each one to the local Hermes agent, returning the
+  agent's reply as a tool_response.
+author: smallke
+requires_env:
+  - OCTER_API_KEY
