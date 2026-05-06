@@ -1,22 +1,29 @@
 ---
 name: octer-hermes
 version: 1.0.0
-description: "Octer Hermes — Hermes Agent platform plugin that bridges Octer.ai cloud over WebSocket. Use when the user mentions octer, octer-hermes, Octer.ai, or asks to install/configure/connect Hermes to the Octer cloud."
+description: "Install and configure the Octer.ai platform plugin for Hermes Agent. Use when the user says any of: 'install octer', 'install octer-hermes', 'connect Hermes to Octer.ai', 'set up octer plugin', 'install the skill from <octer URL>', or pastes an `evo_…` API key with octer context. The skill performs end-to-end install: fetch source → copy to plugin dir → check deps → write API key → enable → restart gateway → verify."
 metadata:
   hermes:
     tags: [platform, plugin, octer, websocket, install, gateway]
     related_skills: []
   requires:
-    bins: ["python3", "pip"]
+    bins: ["git", "python3"]
 ---
 
-# Octer Hermes —— 安装 / 配置 / 排错
+# Octer Hermes —— 自动安装 / 配置 / 排错
 
-> **重要 — Agent 行为约束**：在执行任何 octer 相关操作前，必须先检查 `OCTER_API_KEY` 是否已配置：
-> ```bash
-> grep -E '^OCTER_API_KEY=' ~/.hermes/.env 2>/dev/null || echo "MISSING"
-> ```
-> 若输出 `MISSING` 或值为空，**停下来**引导用户走"配置 API Key"流程。**绝不**在缺少有效 `evo_` 开头的 API Key 时尝试启动 / 重启网关，否则连接会立刻失败。
+> **触发示例**（agent 看到这些应该走本 skill）：
+> - "Please install the skill from https://…/octer…/SKILL.md and use API_KEY evo_xxx"
+> - "帮我把 hermes 接到 octer.ai，key 是 evo_xxx"
+> - "install octer-hermes"
+
+## Agent 必读规则
+
+1. **API Key 抽取**：从用户当前消息里抓取 `evo_[a-zA-Z0-9]+` 形式的串，作为 `OCTER_API_KEY`。**找不到就停下问用户**，绝不自己编。
+2. **不依赖外部 SKILL URL**：用户给的 URL 只是触发词。安装步骤都在本 skill 内，不要去 fetch 那个 URL 来对照。
+3. **源码位置**：见下方 §1。如果用户没说 git URL，按 §1 的默认值去 clone。
+4. **先检查再动作**：每步执行前用 `grep` / `ls` / `python -c "import …"` 确认现状，避免重复操作。
+5. **绝不在缺 API Key 时启动 gateway**——连接会立刻 `invalid_apikey` 失败。
 
 ## 这是什么
 
@@ -28,78 +35,114 @@ Octer.ai 云端  ←──WebSocket──→  octer-hermes 插件  ←──in-p
                 (tool_response)
 ```
 
-## 安装流程
+## 自动安装流程（5 步）
 
-按以下 4 步执行，**每步必须验证完成再进入下一步**。源码位于 `/home/ubuntu/users/zq/octer-hermes/`（或用户指定的路径）。
+> Source repo: **`https://github.com/smallke/octer-hermes`** （写死，不要改）
+>
+> 假设用户已通过本 skill 的触发词激活（含 API Key）。从这里开始一气呵成执行 5 步，每步先 check 再做，全部成功才算完。
 
-### 1. 链接到 Hermes 插件目录
-
-```bash
-ln -sfn /home/ubuntu/users/zq/octer-hermes ~/.hermes/plugins/platforms/octer
-```
-
-验证：
-```bash
-ls -la ~/.hermes/plugins/platforms/octer/plugin.yaml
-# 应显示文件存在
-```
-
-### 2. 安装 Python 依赖
+### 1. 获取源码（git clone 到 ~/.hermes/cache）
 
 ```bash
-pip install -r ~/.hermes/plugins/platforms/octer/requirements.txt
+SRC=~/.hermes/cache/octer-hermes
+mkdir -p "$(dirname "$SRC")"
+if [ -d "$SRC/.git" ]; then
+  git -C "$SRC" pull --ff-only --quiet
+else
+  git clone --depth 1 https://github.com/smallke/octer-hermes.git "$SRC"
+fi
+ls "$SRC/plugin.yaml" >/dev/null && echo "OK: source ready at $SRC"
 ```
 
-或直接：
-```bash
-pip install "websockets>=12.0"
-```
+失败处理：
+- `git: command not found` → 让用户先装 git
+- 网络 timeout / 403 → 让用户检查 GitHub 可访问性
 
-验证：
-```bash
-python3 -c "import websockets; print(websockets.__version__)"
-```
-
-### 3. 配置 API Key
-
-**首选 —— 交互式向导：**
-```bash
-hermes gateway setup
-# 在平台列表里选择 "Octer"，按提示输入 evo_ 开头的 API Key
-```
-
-**或直接写 `~/.hermes/.env`：**
-```bash
-cat >> ~/.hermes/.env <<'EOF'
-OCTER_API_KEY=evo_PASTE_YOUR_KEY_HERE
-OCTER_ALLOWED_USERS=octer-cloud
-EOF
-```
-
-**注意事项**：
-- API Key 必须以 `evo_` 开头，否则插件 `connect()` 时会以 `invalid_apikey` 致命错误退出
-- 用户没有 Key 时，引导他们去 [octer.ai/workspace](https://octer.ai/workspace) → **Me** → **Settings** → **API Keys** → **Create Key**
-- **不要替用户编造 / 假设 Key**
-
-### 4. 重启网关并验证
+### 2. 拷贝到 Hermes 插件目录
 
 ```bash
-hermes gateway restart
-hermes gateway status
+mkdir -p ~/.hermes/plugins/platforms
+rm -rf ~/.hermes/plugins/platforms/octer
+cp -r ~/.hermes/cache/octer-hermes ~/.hermes/plugins/platforms/octer
+rm -rf ~/.hermes/plugins/platforms/octer/.git ~/.hermes/plugins/platforms/octer/__pycache__
+ls ~/.hermes/plugins/platforms/octer/plugin.yaml >/dev/null && echo "OK: plugin installed"
 ```
 
-期望输出包含：
-```
-🌐 Octer: configured, running
-```
+> **必须用 `cp -r`，不要用 `ln -s`**：软链会把源码绝对路径写进 Hermes 的 manifest / 日志 / 错误堆栈，持续暴露用户文件结构。只有用户**明确**要"开发模式"才用软链，并告知风险。
 
-实时确认 WebSocket 已接通：
+### 3. 检查 Python 依赖
+
 ```bash
-tail -n 50 ~/.hermes/logs/gateway.log | grep '\[octer'
-# 应看到:
-# [octer-channel][default] connected to Octer.ai
-# [octer] adapter connected (account=default)
+HERMES_PY=$(head -1 "$(which hermes)" | sed 's|^#!||')
+"$HERMES_PY" -c "import websockets, sys; sys.exit(0 if websockets.__version__ >= '12' else 1)" \
+  && echo "OK: websockets present" \
+  || "$(dirname "$HERMES_PY")/pip" install "websockets>=12.0"
 ```
+
+> Hermes ≥ v0.12 自带 `websockets 15.0.1`，绝大多数情况第一行就 OK 了。**绝不**用系统 `pip install websockets`——hermes 跑在自己 venv 里，看不到系统 pip 装的包。
+
+### 4. 写入 API Key + 白名单
+
+从用户当前消息里提取 `evo_[a-zA-Z0-9]+`（必须以 `evo_` 开头，长度≥30）作为 `<API_KEY>`。**找不到就停下来问**，绝不假造。
+
+```bash
+API_KEY="<API_KEY>"   # ← 替换成从用户消息里抓到的真实 Key
+touch ~/.hermes/.env
+
+# 幂等写入 OCTER_API_KEY
+if grep -q '^OCTER_API_KEY=' ~/.hermes/.env; then
+  sed -i "s|^OCTER_API_KEY=.*|OCTER_API_KEY=$API_KEY|" ~/.hermes/.env
+else
+  echo "OCTER_API_KEY=$API_KEY" >> ~/.hermes/.env
+fi
+
+# 幂等写入 OCTER_ALLOWED_USERS=octer-cloud（必备，否则 hermes 会拒绝所有请求）
+if grep -q '^OCTER_ALLOWED_USERS=' ~/.hermes/.env; then
+  sed -i 's|^OCTER_ALLOWED_USERS=.*|OCTER_ALLOWED_USERS=octer-cloud|' ~/.hermes/.env
+else
+  echo 'OCTER_ALLOWED_USERS=octer-cloud' >> ~/.hermes/.env
+fi
+
+# 注释掉 ALLOW_ALL_USERS（如有），优先走显式白名单
+sed -i 's|^OCTER_ALLOW_ALL_USERS=true|# OCTER_ALLOW_ALL_USERS=true|' ~/.hermes/.env
+
+grep '^OCTER_' ~/.hermes/.env | sed 's/=evo_.*/=evo_***REDACTED***/'
+```
+
+> **报告给用户的所有日志输出都必须把 evo_ 后面的内容打码**，不要明文回显 API Key。
+
+用户没有 Key 时，引导去 [octer.ai/workspace](https://octer.ai/workspace) → Me → Settings → API Keys → Create Key。
+
+### 5. Enable 插件 + 重启网关 + 验证
+
+```bash
+hermes plugins enable platforms/octer
+```
+
+```bash
+# 重启网关（如果当前在跑就 --replace；如果没跑就直接 run）
+if pgrep -f "hermes gateway run" >/dev/null 2>&1; then
+  setsid -f bash -c 'hermes gateway run -v --accept-hooks --replace > /tmp/hermes-gateway.log 2>&1' &
+else
+  setsid -f bash -c 'hermes gateway run -v --accept-hooks > /tmp/hermes-gateway.log 2>&1' &
+fi
+sleep 6
+grep -E "octer|connected|ERROR|Unauthorized" /tmp/hermes-gateway.log | head -10
+```
+
+期望日志包含全部三行：
+```
+INFO gateway.run: Connecting to octer...
+INFO ...adapter: [octer-channel][default] connected to Octer.ai
+INFO ...adapter: [octer] WebSocket ready
+```
+
+不能出现：
+- `'ClientConnection' object has no attribute 'closed'` → 旧代码遗留，确认 §2 拷的是最新源码
+- `OCTER_API_KEY must start with evo_` → §4 没抓到正确 Key
+- `Unauthorized user: req_xxx` → §4 漏了 `OCTER_ALLOWED_USERS=octer-cloud`
+
+全部通过即安装成功。让用户在 Octer.ai 端发一次请求最终确认 e2e 链路。
 
 ## 端到端验证
 

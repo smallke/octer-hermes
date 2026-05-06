@@ -16,21 +16,33 @@ Octer.ai 云端  ←──WebSocket──→  octer-hermes 插件  ←──in-p
 
 ## 安装
 
-### 1. 软链接到 Hermes 插件目录
+### 1. 拷贝到 Hermes 插件目录
+
+在本仓库根目录下执行：
 
 ```bash
-ln -sfn $(pwd) ~/.hermes/plugins/platforms/octer
+mkdir -p ~/.hermes/plugins/platforms
+cp -r . ~/.hermes/plugins/platforms/octer
 ```
 
-> 或拷贝目录：`cp -r . ~/.hermes/plugins/platforms/octer`
+> **不推荐**软链 (`ln -s`)：会把你本地源码的绝对路径写入 Hermes 配置和日志中。如果坚持用软链做开发模式，请用 `ln -sfn "$PWD" ...`，并避免分享相关日志。
 
-### 2. 安装 Python 依赖
+### 2. 检查 Python 依赖
+
+唯一依赖是 `websockets>=12.0`。**Hermes 自带的 venv 通常已经装好了**，先检查：
 
 ```bash
-pip install -r requirements.txt
-# 或在 hermes-agent 项目环境里：
-# pip install websockets
+HERMES_PY=$(head -1 "$(which hermes)" | sed 's|^#!||')
+"$HERMES_PY" -c "import websockets; print(websockets.__version__)"
 ```
+
+- 能打印版本号 → 跳过
+- 报 `ModuleNotFoundError` → 在 hermes 自己的 venv 内装：
+  ```bash
+  "$(dirname "$HERMES_PY")/pip" install "websockets>=12.0"
+  ```
+
+> 注意：用系统 `pip install websockets` **没用**，hermes 跑在它自己的 venv 里看不到。
 
 ### 3. 配置 API Key
 
