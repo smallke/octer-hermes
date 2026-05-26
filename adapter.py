@@ -128,18 +128,26 @@ class OcterAdapter(BasePlatformAdapter):
         else:
             logger.debug("[octer] unknown WS message type: %s", msg_type)
 
+    def _stable_chat_id(self) -> str:
+        """Stable chat ID used to reuse the same agent session across requests.
+
+        Must not contain colons — the gateway session key format is
+        ``agent:main:{platform}:dm:{chat_id}`` and splits on ':',
+        so any colon inside chat_id would corrupt the parse.
+        """
+        return f"octer-{self.account_id}"
+
     async def _handle_tool_request(self, msg: dict) -> None:
         request_id = str(msg.get("request_id") or "unknown")
         if not self._dedup.try_record(request_id):
             logger.info("[octer] duplicate request %s, skipping", request_id)
             return
 
-        lock = self._req_locks.setdefault(request_id, asyncio.Lock())
+        # Serialize per account so each request continues the same session.
+        chat_id = self._stable_chat_id()
+        lock = self._req_locks.setdefault(chat_id, asyncio.Lock())
         async with lock:
-            try:
-                await self._dispatch_to_agent(request_id, msg)
-            finally:
-                self._req_locks.pop(request_id, None)
+            await self._dispatch_to_agent(request_id, msg)
 
     async def _dispatch_to_agent(self, request_id: str, msg: dict) -> None:
         query = (msg.get("arguments") or {}).get("query") or ""
@@ -158,9 +166,10 @@ class OcterAdapter(BasePlatformAdapter):
             )
             return
 
+        chat_id = self._stable_chat_id()
         source = self.build_source(
-            chat_id=request_id,
-            chat_name=f"octer:{request_id[:12]}",
+            chat_id=chat_id,
+            chat_name=chat_id,
             chat_type="dm",
             user_id=OCTER_USER_ID,
             user_name="Octer",
@@ -173,7 +182,7 @@ class OcterAdapter(BasePlatformAdapter):
             timestamp=datetime.datetime.now(),
         )
 
-        self._pending[request_id] = []
+        self._pending[chat_id] = []
         response: Any = None
         try:
             response = await self._message_handler(event)
@@ -182,9 +191,9 @@ class OcterAdapter(BasePlatformAdapter):
             await self._send_tool_response(
                 request_id, error=str(exc), success=False
             )
-            self._pending.pop(request_id, None)
+            self._pending.pop(chat_id, None)
             return
-        buffered = self._pending.pop(request_id, [])
+        buffered = self._pending.pop(chat_id, [])
 
         if isinstance(response, str) and response.strip():
             text = response
